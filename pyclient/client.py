@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import hashlib
+import logging
 import pathlib
 import typing
 
@@ -8,10 +9,8 @@ import aiohttp
 import click
 
 # TODO:
-# - timeouts
-# - cli plumbing
-# - security: ssl, auth?
 # - typehints
+# - security: ssl, auth?
 # - docstrings
 
 
@@ -35,8 +34,17 @@ class Client():
         'retrieve_data': 'retrieve_data',
     }
 
-    def __init__(self, server_url: str = 'localhost:44987') -> None:
-        self.server_url = server_url
+    def __init__(self,
+                 timeout: int = 5,
+                 server_url: str = 'http://localhost:44987') -> None:
+        self.server_url = self._format_server_url(server_url)
+        self.timeout = aiohttp.ClientTimeout(total=float(timeout))
+
+    def _format_server_url(self, url: str) -> str:
+        if url.startswith('http://') or url.startswith('https://'):
+            return url
+        else:
+            return f'http://{url}'
 
     def _sha256(self, file_: typing.BinaryIO) -> str:
         file_.seek(0)
@@ -56,7 +64,7 @@ class Client():
         if not filepath.is_file():
             raise ClientError(f"{filepath} is not a file!")
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
             with open(filepath, 'rb') as f:
                 sha256_digest = self._sha256(f)
                 print('=' * 80)
@@ -91,7 +99,7 @@ class Client():
                             target_path: pathlib.Path) -> None:
         if target_path.exists():
             raise ClientError(f'{target_path} already exists!')
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
                 f'{self.server_url}/{self.SERVER_URLMAP["retrieve_data"]}/{fname}'
             ) as rsp:
@@ -105,7 +113,7 @@ class Client():
 
     async def check_data(self, fname: str) -> None:
         # rsp = {status: {sha256, name, lmod, health}}
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
                 f'{self.server_url}/{self.SERVER_URLMAP["check_data"]}'
             ) as rsp:
@@ -123,7 +131,7 @@ class Client():
 
     async def list_data(self) -> None:
         # rsp = {files: [{sha256, name, lmod},]}
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
                     f'{self.server_url}/{self.SERVER_URLMAP["list_data"]}'
             ) as rsp:
@@ -139,16 +147,39 @@ class Client():
                     print(f'sha256sum: {file_["sha256"]}')
 
 
-def _run_client_fn(fn) -> None:
+def _run_client_fn(
+        fn: typing.Callable[..., typing.Any],
+        *args: typing.Any,
+        **kwargs: typing.Any) -> None:
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(fn)
+    loop.run_until_complete(fn(*args, **kwargs))
 
 
-def common_options(func):
-    @click.option('--debug/--no-debug', default=False)
-    @click.option('-s', '--server-url', type=str)
+def _setup_logging(debug: bool) -> None:
+    fmt = '%(asctime)s:%(levelname)s: %(message)s'
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format=fmt)
+
+
+def common_options(
+    func: typing.Callable[...,
+                          typing.Any]) -> typing.Callable[..., typing.Any]:
+    @click.option('--debug/--no-debug',
+                  default=False,
+                  help='Enable debug logging')
+    @click.option('-s',
+                  '--server-url',
+                  type=str,
+                  help='Backuper Server URL',
+                  default='localhost:44987')
+    @click.option('-t',
+                  '--timeout',
+                  type=int,
+                  help='Seconds before timeout',
+                  default=5)
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs) -> typing.Any:
         return func(*args, **kwargs)
     return wrapper
 
@@ -159,10 +190,49 @@ def cli() -> None:
 
 
 @cli.command()
+@click.argument('filename', type=str)
+@click.argument('source-path', type=str)
 @common_options
-def list_data(debug, server_url):
+def submit_data(debug: bool, server_url: str, timeout: int, filename: str,
+                fpath: str) -> None:
+    """Submit data to archive"""
+    # TODO: refactor common setup
+    _setup_logging(debug)
+    file_path = pathlib.Path(fpath)
+    client = Client(timeout, server_url)
+    _run_client_fn(client.submit_data, filename, file_path)
+
+
+@cli.command()
+@click.argument('filename', type=str)
+@click.argument('destination-path', type=str)
+@common_options
+def retrieve_data(debug: bool, server_url: str, timeout: int, filename: str,
+                  tpath: str) -> None:
+    """Retrieve data by file name"""
+    _setup_logging(debug)
+    target_path = pathlib.Path(tpath)
+    client = Client(timeout, server_url)
+    _run_client_fn(client.retrieve_data, filename, target_path)
+
+
+@cli.command()
+@click.argument('filename', type=str)
+@common_options
+def check_data(debug: bool, server_url: str, timeout: int,
+               filename: str) -> None:
+    """Check data integrity"""
+    _setup_logging(debug)
+    client = Client(timeout, server_url)
+    _run_client_fn(client.check_data, filename)
+
+
+@cli.command()
+@common_options
+def list_data(debug: bool, server_url: str, timeout: int) -> None:
     """List data"""
-    client = Client(server_url)
+    _setup_logging(debug)
+    client = Client(timeout, server_url)
     _run_client_fn(client.list_data)
 
 
