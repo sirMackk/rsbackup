@@ -9,8 +9,9 @@ import aiohttp
 import click
 
 # TODO:
+# - security: ssl (custom certs)
+# - security: authentication
 # - typehints
-# - security: ssl, auth?
 # - docstrings
 
 
@@ -74,9 +75,9 @@ class Client():
                     f'{self.server_url}/{self.SERVER_URLMAP["submit_data"]}',
                     data=f
                 ) as rsp:
-                    if rsp.status != 200:
+                    if rsp.status != 204:
                         raise ServerError(await rsp.text())
-                    data_submit = (await rsp.json())['submitted']
+                    data_submit = (await rsp.json())
                     print('=' * 80)
                     # TODO what if digests dont match?
                     print('Status: SUCCESS')
@@ -122,7 +123,7 @@ class Client():
                 elif rsp.status != 200:
                     raise ServerError(await rsp.text())
                 else:
-                    data_check = (await rsp.json())['status']
+                    data_check = (await rsp.json())
                     print('=' * 80)
                     print(f'name: {data_check["name"]}')
                     print(f'last modified: {data_check["lmod"]}')
