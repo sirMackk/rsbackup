@@ -152,7 +152,7 @@ func TestSubmitDataHandler(t *testing.T) {
 		method         string
 		fileToSubmit   string
 		filesThatExist []string
-		formFileField string
+		formFileField  string
 		expectedStatus int
 		expectedRsp    string
 	}{
@@ -167,8 +167,8 @@ func TestSubmitDataHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := createTMPDir(t, "rsbackup")
 			config := &Config{
-				backupRoot: tmpDir,
-				dataShards: 2,
+				backupRoot:   tmpDir,
+				dataShards:   2,
 				parityShards: 1,
 			}
 			api := &RSBackupAPI{
@@ -215,6 +215,57 @@ func TestSubmitDataHandler(t *testing.T) {
 				t.Errorf("Got rsp body '%s', expected '%s'", rspBodyTrimmed, tt.expectedRsp)
 			}
 
+		})
+	}
+}
+
+func TestRetrieveDataHandler(t *testing.T) {
+	testData, err := ioutil.ReadFile("testdata/tyger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedTestData := strings.TrimSuffix(string(testData), "\n")
+	retrieveDataTests := []struct {
+		name           string
+		method         string
+		url            string
+		expectedStatus int
+		expectedRsp    string
+	}{
+		{"bad method", "DELETE", "/retrieve_data/tyger", 405, "Method Not Allowed"},
+		{"bad url", "GET", "/retrieve_data/tyger/tail", 400, "Bad Request"},
+		{"file not found", "GET", "/retrieve_data/lion", 404, "Not Found"},
+		{"success", "GET", "/retrieve_data/tyger", 200, expectedTestData},
+	}
+
+	for _, tt := range retrieveDataTests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &Config{
+				backupRoot: "testdata/",
+			}
+			api := &RSBackupAPI{
+				config: config,
+				rsFileMan: &RSFileManager{
+					config: config,
+				},
+			}
+
+			req := httptest.NewRequest(tt.method, tt.url, nil)
+			rr := httptest.NewRecorder()
+			handler := http.HandlerFunc(api.retrieveDataHandler)
+			handler.ServeHTTP(rr, req)
+			rsp := rr.Result()
+
+			if rsp.StatusCode != tt.expectedStatus {
+				t.Errorf("Got status code %d, expected %d", rsp.StatusCode, tt.expectedStatus)
+			}
+			rspBody, err := ioutil.ReadAll(rsp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rspBodyTrimmed := strings.TrimSuffix(string(rspBody), "\n"); rspBodyTrimmed != tt.expectedRsp {
+				t.Errorf("Got rsp body '%s', expected '%s'", rspBodyTrimmed, tt.expectedRsp)
+			}
 		})
 	}
 }

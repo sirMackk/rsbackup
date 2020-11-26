@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -27,6 +30,17 @@ func getClientIP(r *http.Request) string {
 	} else {
 		return "Unknown"
 	}
+}
+
+// getURLParam returns the parameter in a URL.
+// It is specifically limited to returning only the 3rd level part, ie.
+// /some/thing will return "thing."
+func getURLParam(urlPath string) (string, error) {
+	urlParams := strings.Split(urlPath, "/")
+	if len(urlParams) != 3 || urlParams[2] == "" {
+		return "", fmt.Errorf("Cannot extract url param from '%s'", urlPath)
+	}
+	return urlParams[2], nil
 }
 
 type RSBackupAPI struct {
@@ -116,14 +130,12 @@ func (rs *RSBackupAPI) checkDataHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-
-	urlParams := strings.Split(r.URL.Path, "/")
-	if len(urlParams) != 3 || urlParams[2] == "" {
-		rs.Errorf(r, "Bad url path: %s", r.URL.Path)
+	fname, err := getURLParam(r.URL.Path)
+	if err != nil {
+		rs.Errorf(r, "Can't check data: %s", err)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	fname := urlParams[2]
 	health, lmod, hashes, err := rs.rsFileMan.CheckData(fname)
 	if err != nil {
 		if err.Error() == "File not found" {
@@ -203,4 +215,30 @@ func (rs *RSBackupAPI) submitDataHandler(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (rs *RSBackupAPI) retrieveDataHandler(w http.ResponseWriter, r *http.Request) {}
+func (rs *RSBackupAPI) retrieveDataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		rs.Errorf(r, "Bad method %s", r.Method)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	fname, err := getURLParam(r.URL.Path)
+	if err != nil {
+		rs.Errorf(r, "Can't retrieve file: %s", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	fpath := path.Join(rs.config.backupRoot, fname)
+	file, err := os.Open(fpath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			rs.Errorf(r, "Retrieval failed, %s does not exist", fpath)
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		rs.Errorf(r, "Retrieval of %s failed: %s", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+	http.ServeContent(w, r, fname, time.Time{}, file)
+}
