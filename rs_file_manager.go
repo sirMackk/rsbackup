@@ -96,7 +96,7 @@ func (rs *RSBackupAPI) GenerateParityFiles(dataFilePath string) (*rsutils.Metada
 	dataShards := rs.config.dataShards
 	parityShards := rs.config.parityShards
 
-	dataChunks := rsutils.NewPaddedFileChunk(dataFile, dataFileSize, dataShards)
+	dataChunks := rsutils.SplitIntoPaddedChunks(dataFile, dataFileSize, dataShards)
 	dataSources := make([]io.Reader, len(dataChunks))
 	for i := range dataChunks {
 		dataSources[i] = dataChunks[i]
@@ -132,7 +132,7 @@ func (r *RSFileManager) CheckData(fname string) (bool, string, []string, error) 
 		return false, "", []string{}, err
 	}
 
-	fileChunks := rsutils.NewPaddedFileChunk(dataFile, md.Size, md.DataShards)
+	fileChunks := rsutils.SplitIntoPaddedChunks(dataFile, md.Size, md.DataShards)
 	shards := make([]io.ReadWriteSeeker, len(fileChunks)+md.ParityShards)
 	for i := range fileChunks {
 		shards[i] = fileChunks[i]
