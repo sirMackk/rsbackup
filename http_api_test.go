@@ -57,12 +57,12 @@ func TestListDataHandler(t *testing.T) {
 	for _, tt := range listDataTests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &Config{
-				backupRoot: tt.directory,
+				BackupRoot: tt.directory,
 			}
 			api := &RSBackupAPI{
-				config: config,
-				rsFileMan: &RSFileManager{
-					config: config,
+				Config: config,
+				RsFileMan: &RSFileManager{
+					Config: config,
 				},
 			}
 
@@ -112,12 +112,12 @@ func TestCheckDataHandler(t *testing.T) {
 	for _, tt := range checkDataTests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &Config{
-				backupRoot: "testdata/",
+				BackupRoot: "testdata/",
 			}
 			api := &RSBackupAPI{
-				config: config,
-				rsFileMan: &RSFileManager{
-					config: config,
+				Config: config,
+				RsFileMan: &RSFileManager{
+					Config: config,
 				},
 			}
 
@@ -160,21 +160,21 @@ func TestSubmitDataHandler(t *testing.T) {
 		{"bad form field", "POST", "tyger", []string{}, "derp", 400, "Bad Request"},
 		{"file exists", "POST", "tyger", []string{"tyger"}, "file", 500, "Internal Server Error"},
 		{"parity file exists", "POST", "tyger", []string{"tyger.parity.1"}, "file", 500, "Internal Server Error"},
-		{"successful upload", "POST", "tyger", []string{}, "file", 200, `{"size":808,"hashes":["e4ee8bee30da3556436d715cf24da735445eb7b735d96d9976cb4f64d7043a18","64163fa75b3eadb78f376dd7ab84e48595e9748dadbfb50e2126bef20481baa1","e32a8903342ab6dc68d46462df727f6812f6fbb728c4a1240b625331b811c147"],"data_shards":2,"parity_shards":1}`},
+		{"successful upload", "POST", "tyger", []string{}, "file", 200, `{"size":808,"hashes":["aa8b8979f1486fe03d54d1bdd4a32018386285a2ad0dc9a2820f0da3d6293e72","64163fa75b3eadb78f376dd7ab84e48595e9748dadbfb50e2126bef20481baa1","e32a8903342ab6dc68d46462df727f6812f6fbb728c4a1240b625331b811c147"],"data_shards":2,"parity_shards":1}`},
 	}
 	// successful upload
 	for _, tt := range submitDataTests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := createTMPDir(t, "rsbackup")
 			config := &Config{
-				backupRoot:   tmpDir,
-				dataShards:   2,
-				parityShards: 1,
+				BackupRoot:   tmpDir,
+				DataShards:   2,
+				ParityShards: 1,
 			}
 			api := &RSBackupAPI{
-				config: config,
-				rsFileMan: &RSFileManager{
-					config: config,
+				Config: config,
+				RsFileMan: &RSFileManager{
+					Config: config,
 				},
 			}
 
@@ -241,12 +241,12 @@ func TestRetrieveDataHandler(t *testing.T) {
 	for _, tt := range retrieveDataTests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &Config{
-				backupRoot: "testdata/",
+				BackupRoot: "testdata/",
 			}
 			api := &RSBackupAPI{
-				config: config,
-				rsFileMan: &RSFileManager{
-					config: config,
+				Config: config,
+				RsFileMan: &RSFileManager{
+					Config: config,
 				},
 			}
 

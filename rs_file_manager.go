@@ -15,11 +15,11 @@ import (
 )
 
 type RSFileManager struct {
-	config *Config
+	Config *Config
 }
 
 func (r *RSFileManager) ListData() ([]string, error) {
-	dir, err := os.Open(r.config.backupRoot)
+	dir, err := os.Open(r.Config.BackupRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (r *RSFileManager) ReadMetadata(fpath string) (*rsutils.Metadata, error) {
 }
 
 func (r *RSFileManager) SaveFile(src io.Reader, fname string) (string, error) {
-	dstPath := path.Join(r.config.backupRoot, fname)
+	dstPath := path.Join(r.Config.BackupRoot, fname)
 	outputFile, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0655)
 	if err != nil {
 		return "", err
@@ -93,15 +93,15 @@ func (rs *RSBackupAPI) GenerateParityFiles(dataFilePath string) (*rsutils.Metada
 		return nil, err
 	}
 	dataFileSize := dataFileStat.Size()
-	dataShards := rs.config.dataShards
-	parityShards := rs.config.parityShards
+	dataShards := rs.Config.DataShards
+	parityShards := rs.Config.ParityShards
 
 	dataChunks := rsutils.SplitIntoPaddedChunks(dataFile, dataFileSize, dataShards)
 	dataSources := make([]io.Reader, len(dataChunks))
 	for i := range dataChunks {
 		dataSources[i] = dataChunks[i]
 	}
-	parityWriters := make([]io.Writer, rs.config.parityShards)
+	parityWriters := make([]io.Writer, rs.Config.ParityShards)
 	for i := range parityWriters {
 		parityPath := fmt.Sprintf("%s.parity.%d", dataFilePath, i+1)
 		pwriter, err := os.OpenFile(parityPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0655)
@@ -116,7 +116,7 @@ func (rs *RSBackupAPI) GenerateParityFiles(dataFilePath string) (*rsutils.Metada
 }
 
 func (r *RSFileManager) CheckData(fname string) (bool, string, []string, error) {
-	fpath := path.Join(r.config.backupRoot, fname)
+	fpath := path.Join(r.Config.BackupRoot, fname)
 	dataFile, err := os.Open(fpath)
 	if err != nil {
 		if os.IsNotExist(err) {

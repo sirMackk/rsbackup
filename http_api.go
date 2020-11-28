@@ -14,12 +14,12 @@ import (
 )
 
 type Config struct {
-	backupRoot   string
-	dataShards   int
-	parityShards int
-	address      string
-	httpCertPath string
-	httpKeyPath  string
+	BackupRoot   string
+	DataShards   int
+	ParityShards int
+	Address      string
+	HttpCertPath string
+	HttpKeyPath  string
 }
 
 func getClientIP(r *http.Request) string {
@@ -44,9 +44,9 @@ func getURLParam(urlPath string) (string, error) {
 }
 
 type RSBackupAPI struct {
+	Config    *Config
+	RsFileMan *RSFileManager
 	server    *http.Server
-	config    *Config
-	rsFileMan *RSFileManager
 }
 
 func (rs *RSBackupAPI) Errorf(r *http.Request, formatString string, args ...interface{}) {
@@ -56,14 +56,13 @@ func (rs *RSBackupAPI) Errorf(r *http.Request, formatString string, args ...inte
 
 func (r *RSBackupAPI) Start() chan struct{} {
 	r.server = &http.Server{
-		Addr: r.config.address,
+		Addr: r.Config.Address,
 	}
-
 	running := make(chan struct{})
 
 	go func() {
 		r.registerRoutes()
-		err := r.server.ListenAndServeTLS(r.config.httpCertPath, r.config.httpKeyPath)
+		err := r.server.ListenAndServeTLS(r.Config.HttpCertPath, r.Config.HttpKeyPath)
 		if err != nil {
 			log.Errorf("TLS Server couldn't start: %s", err)
 			close(running)
@@ -86,6 +85,7 @@ func (r *RSBackupAPI) Stop() error {
 }
 
 func (r *RSBackupAPI) registerRoutes() {
+	log.Debug("Registering routes")
 	http.HandleFunc("/list_data", r.listDataHandler)
 	http.HandleFunc("/check_data", r.checkDataHandler)
 	http.HandleFunc("/submit_data", r.submitDataHandler)
@@ -102,9 +102,9 @@ func (rs *RSBackupAPI) listDataHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	names, err := rs.rsFileMan.ListData()
+	names, err := rs.RsFileMan.ListData()
 	if err != nil {
-		rs.Errorf(r, "Error while listing files from %s: %s", rs.config.backupRoot, err)
+		rs.Errorf(r, "Error while listing files from %s: %s", rs.Config.BackupRoot, err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -136,7 +136,7 @@ func (rs *RSBackupAPI) checkDataHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	health, lmod, hashes, err := rs.rsFileMan.CheckData(fname)
+	health, lmod, hashes, err := rs.RsFileMan.CheckData(fname)
 	if err != nil {
 		if err.Error() == "File not found" {
 			rs.Errorf(r, "File %s not found", fname)
@@ -168,6 +168,7 @@ type submitDataRsp struct {
 }
 
 func (rs *RSBackupAPI) submitDataHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: data/parity shards should be set through request, not config
 	if r.Method != "POST" {
 		rs.Errorf(r, "Bad method %s", r.Method)
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -187,7 +188,7 @@ func (rs *RSBackupAPI) submitDataHandler(w http.ResponseWriter, r *http.Request)
 	}
 	defer inputData.Close()
 	log.Errorf("Creating file %s", header.Filename)
-	dataFilePath, err := rs.rsFileMan.SaveFile(inputData, header.Filename)
+	dataFilePath, err := rs.RsFileMan.SaveFile(inputData, header.Filename)
 	if err != nil {
 		// TODO: bubble up 'file exists' error to client somehow
 		rs.Errorf(r, "Unable to save file %s: %s", header.Filename, err)
@@ -227,7 +228,7 @@ func (rs *RSBackupAPI) retrieveDataHandler(w http.ResponseWriter, r *http.Reques
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	fpath := path.Join(rs.config.backupRoot, fname)
+	fpath := path.Join(rs.Config.BackupRoot, fname)
 	file, err := os.Open(fpath)
 	if err != nil {
 		if os.IsNotExist(err) {
