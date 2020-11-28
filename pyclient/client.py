@@ -9,7 +9,6 @@ import aiohttp
 import click
 
 # TODO:
-# - security: ssl (custom certs)
 # - security: authentication
 # - typehints
 # - docstrings
@@ -59,7 +58,7 @@ class Client():
         return hasher.hexdigest()
 
     async def submit_data(self, fname: str, filepath: pathlib.Path) -> None:
-        # rsp = {submitted: {sha256}}
+        # rsp = {size, data_shards, parity_shards, [hashes]}
         if not filepath.exists():
             raise ClientError(f"{filepath} does not exist!")
         if not filepath.is_file():
@@ -75,16 +74,15 @@ class Client():
                     f'{self.server_url}/{self.SERVER_URLMAP["submit_data"]}',
                     data=f
                 ) as rsp:
-                    if rsp.status != 204:
+                    if rsp.status != 200:
                         raise ServerError(await rsp.text())
                     data_submit = (await rsp.json())
                     print('=' * 80)
-                    # TODO what if digests dont match?
                     print('Status: SUCCESS')
-                    print(f'sha256: {data_submit["sha256"]}')
-                    print(
-                        f'sha256 match: {sha256_digest == data_submit["sha256"]}'
-                    )
+                    print(f'size: {data_submit["size"]}')
+                    print(f'data_shards: {data_submit["data_shards"]}')
+                    print(f'parity_shards: {data_submit["parity_shards"]}')
+                    print(f'hashes: {data_submit["hashes"]}')
 
     async def _save_rsp_to_file(self, rsp: aiohttp.ClientResponse,
                                 path: pathlib.Path) -> None:
@@ -104,16 +102,14 @@ class Client():
             async with session.get(
                 f'{self.server_url}/{self.SERVER_URLMAP["retrieve_data"]}/{fname}'
             ) as rsp:
-                if rsp.status == 400:
-                    raise ClientError(f'File {fname} not found!')
-                elif rsp.status != 200:
+                if rsp.status != 200:
                     raise ServerError(await rsp.text())
                 else:
                     await self._save_rsp_to_file(rsp, target_path)
                     print(f'Downloaded "{fname}" to "{target_path}"')
 
     async def check_data(self, fname: str) -> None:
-        # rsp = {status: {sha256, name, lmod, health}}
+        # rsp = {name, lmod, health, [hashes]}
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
                 f'{self.server_url}/{self.SERVER_URLMAP["check_data"]}'
@@ -128,10 +124,10 @@ class Client():
                     print(f'name: {data_check["name"]}')
                     print(f'last modified: {data_check["lmod"]}')
                     print(f'health: {data_check["health"]}')
-                    print(f'sha256: {data_check["sha256"]}')
+                    print(f'hashes: {data_check["hashes"]}')
 
     async def list_data(self) -> None:
-        # rsp = {files: [{sha256, name, lmod},]}
+        # rsp = {[file_names]}
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
                     f'{self.server_url}/{self.SERVER_URLMAP["list_data"]}'
@@ -144,8 +140,6 @@ class Client():
                 for file_ in data_list['files']:
                     print('=' * 80)
                     print(f'name: {file_["name"]}')
-                    print(f'last modified: {file_["lmod"]}')
-                    print(f'sha256sum: {file_["sha256"]}')
 
 
 def _run_client_fn(

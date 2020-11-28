@@ -17,17 +17,12 @@ list_data_parameters = [
     ({
         'files': [
             {
-                'uuid': '123',
-                'sha256': '456',
                 'name': 'some/file/name',
-                'lmod': '2020-11-14 15:49:34',
             },
         ]
     },
      '=' * 80 + '\n'
-     'name: some/file/name\n'
-     'last modified: 2020-11-14 15:49:34\n'
-     'sha256sum: 456\n'),
+     'name: some/file/name\n'),
     ({'files': []}, 'No files!\n'),
 ]
 
@@ -58,19 +53,17 @@ async def test_list_data_bad_reply() -> None:
 async def test_check_data(capfd) -> None:
     data_name = 'some/file'
     payload = {
-        'status': {
-            'sha256': '123',
-            'name': 'some/file',
-            'lmod': '2020-11-15 15:49:34',
-            'health': 'GOOD'
-        }
+        'hashes': '["123", "456"]',
+        'name': 'some/file',
+        'lmod': '2020-11-15 15:49:34',
+        'health': 'GOOD'
     }
     expected = (
         '=' * 80 + '\n'
         'name: some/file\n'
         'last modified: 2020-11-15 15:49:34\n'
         'health: GOOD\n'
-        'sha256: 123\n'
+        'hashes: ["123", "456"]\n'
     )
     with aioresponses() as m:
         m.get(CHECK_DATA_URL, status=200, payload=payload)
@@ -108,14 +101,21 @@ async def test_submit_data(capfd, tmp_path) -> None:
         f'Uploading file: {data_path}\n' +
         f'sha256: {sha256_digest}\n' +
         '=' * 80 + '\n' +
-        'Status: SUCCESS\n' +
-        f'sha256: {sha256_digest}\n' +
-        'sha256 match: True\n'
+        'Status: SUCCESS\n'
+        'size: 40\n' +
+        'data_shards: 2\n' +
+        'parity_shards: 1\n' +
+        "hashes: ['123', '456']\n"
     )
-    payload = {'submitted': {'sha256': sha256_digest}}
+    response = {
+        'size': 40,
+        'data_shards': 2,
+        'parity_shards': 1,
+        'hashes': ['123', '456'],
+    }
 
     with aioresponses() as m:
-        m.post(SUBMIT_DATA_URL, status=status, payload=payload)
+        m.post(SUBMIT_DATA_URL, status=status, payload=response)
         c = pyclient.Client(server_url=SERVER_URL)
         await c.submit_data(data_name, data_path)
         captured = capfd.readouterr()
@@ -182,7 +182,7 @@ async def test_retrieve_data_already_exists(capfd, tmp_path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('status,exc,exc_msg', [
-    (400, pyclient.ClientError, 'File some/file not found!'),
+    (400, pyclient.ServerError, 'File some/file not found!'),
     (500, pyclient.ServerError, 'Internal Server Error'),
 ])
 async def test_retrieve_data_failure(capfd, tmp_path, status, exc,
