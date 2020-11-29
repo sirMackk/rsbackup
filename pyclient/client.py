@@ -9,6 +9,9 @@ import aiohttp
 import click
 
 # TODO:
+# - fix -k option
+# - fix/test retrieve_data endpoint
+# - add repair data api endpoint
 # - security: authentication
 # - typehints
 # - docstrings
@@ -36,9 +39,12 @@ class Client():
 
     def __init__(self,
                  timeout: int = 5,
-                 server_url: str = 'http://localhost:44987') -> None:
+                 server_url: str = 'http://localhost:44987',
+                 loose_tls: bool = False) -> None:
         self.server_url = self._format_server_url(server_url)
         self.timeout = aiohttp.ClientTimeout(total=float(timeout))
+        self.loose_tls = loose_tls
+        self._aio_ssl = not loose_tls
 
     def _format_server_url(self, url: str) -> str:
         if url.startswith('http://') or url.startswith('https://'):
@@ -72,7 +78,8 @@ class Client():
                 print(f'sha256: {sha256_digest}')
                 async with session.post(
                     f'{self.server_url}/{self.SERVER_URLMAP["submit_data"]}',
-                    data=f
+                    data={'file': f, 'filename': fname},
+                    ssl=self._aio_ssl
                 ) as rsp:
                     if rsp.status != 200:
                         raise ServerError(await rsp.text())
@@ -100,8 +107,8 @@ class Client():
             raise ClientError(f'{target_path} already exists!')
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
-                f'{self.server_url}/{self.SERVER_URLMAP["retrieve_data"]}/{fname}'
-            ) as rsp:
+                    f'{self.server_url}/{self.SERVER_URLMAP["retrieve_data"]}/{fname}',
+                    ssl=self._aio_ssl) as rsp:
                 if rsp.status != 200:
                     raise ServerError(await rsp.text())
                 else:
@@ -112,7 +119,8 @@ class Client():
         # rsp = {name, lmod, health, [hashes]}
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
-                f'{self.server_url}/{self.SERVER_URLMAP["check_data"]}'
+                f'{self.server_url}/{self.SERVER_URLMAP["check_data"]}/{fname}',
+                ssl=self._aio_ssl
             ) as rsp:
                 if rsp.status == 400:
                     raise ClientError(f'File {fname} not found!')
@@ -130,7 +138,8 @@ class Client():
         # rsp = {[file_names]}
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
-                    f'{self.server_url}/{self.SERVER_URLMAP["list_data"]}'
+                    f'{self.server_url}/{self.SERVER_URLMAP["list_data"]}',
+                    ssl=self._aio_ssl
             ) as rsp:
                 if rsp.status != 200:
                     raise ServerError(await rsp.text())
@@ -139,7 +148,7 @@ class Client():
                     print('No files!')
                 for file_ in data_list['files']:
                     print('=' * 80)
-                    print(f'name: {file_["name"]}')
+                    print(f'name: {file_}')
 
 
 def _run_client_fn(
@@ -173,6 +182,11 @@ def common_options(
                   type=int,
                   help='Seconds before timeout',
                   default=5)
+    @click.option('-k',
+                  '--loose-tls',
+                  default=False,
+                  type=bool,
+                  help='Disable strict tls cert verification')
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> typing.Any:
         return func(*args, **kwargs)
@@ -188,13 +202,13 @@ def cli() -> None:
 @click.argument('filename', type=str)
 @click.argument('source-path', type=str)
 @common_options
-def submit_data(debug: bool, server_url: str, timeout: int, filename: str,
-                fpath: str) -> None:
+def submit_data(debug: bool, server_url: str, timeout: int, loose_tls: bool,
+                filename: str, source_path: str) -> None:
     """Submit data to archive"""
     # TODO: refactor common setup
     _setup_logging(debug)
-    file_path = pathlib.Path(fpath)
-    client = Client(timeout, server_url)
+    file_path = pathlib.Path(source_path)
+    client = Client(timeout, server_url, loose_tls)
     _run_client_fn(client.submit_data, filename, file_path)
 
 
@@ -202,32 +216,33 @@ def submit_data(debug: bool, server_url: str, timeout: int, filename: str,
 @click.argument('filename', type=str)
 @click.argument('destination-path', type=str)
 @common_options
-def retrieve_data(debug: bool, server_url: str, timeout: int, filename: str,
-                  tpath: str) -> None:
+def retrieve_data(debug: bool, server_url: str, timeout: int, loose_tls: bool,
+                  filename: str, destination_path: str) -> None:
     """Retrieve data by file name"""
     _setup_logging(debug)
-    target_path = pathlib.Path(tpath)
-    client = Client(timeout, server_url)
+    target_path = pathlib.Path(destination_path)
+    client = Client(timeout, server_url, loose_tls)
     _run_client_fn(client.retrieve_data, filename, target_path)
 
 
 @cli.command()
 @click.argument('filename', type=str)
 @common_options
-def check_data(debug: bool, server_url: str, timeout: int,
+def check_data(debug: bool, server_url: str, timeout: int, loose_tls: bool,
                filename: str) -> None:
     """Check data integrity"""
     _setup_logging(debug)
-    client = Client(timeout, server_url)
+    client = Client(timeout, server_url, loose_tls)
     _run_client_fn(client.check_data, filename)
 
 
 @cli.command()
 @common_options
-def list_data(debug: bool, server_url: str, timeout: int) -> None:
+def list_data(debug: bool, server_url: str, timeout: int,
+              loose_tls: bool) -> None:
     """List data"""
     _setup_logging(debug)
-    client = Client(timeout, server_url)
+    client = Client(timeout, server_url, loose_tls)
     _run_client_fn(client.list_data)
 
 

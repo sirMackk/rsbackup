@@ -153,14 +153,18 @@ func TestSubmitDataHandler(t *testing.T) {
 		fileToSubmit   string
 		filesThatExist []string
 		formFileField  string
+		formFnameField string
+		formFnameValue string
 		expectedStatus int
 		expectedRsp    string
 	}{
-		{"bad method", "GET", "tyger", []string{}, "file", 405, "Method Not Allowed"},
-		{"bad form field", "POST", "tyger", []string{}, "derp", 400, "Bad Request"},
-		{"file exists", "POST", "tyger", []string{"tyger"}, "file", 500, "Internal Server Error"},
-		{"parity file exists", "POST", "tyger", []string{"tyger.parity.1"}, "file", 500, "Internal Server Error"},
-		{"successful upload", "POST", "tyger", []string{}, "file", 200, `{"size":808,"hashes":["aa8b8979f1486fe03d54d1bdd4a32018386285a2ad0dc9a2820f0da3d6293e72","64163fa75b3eadb78f376dd7ab84e48595e9748dadbfb50e2126bef20481baa1","e32a8903342ab6dc68d46462df727f6812f6fbb728c4a1240b625331b811c147"],"data_shards":2,"parity_shards":1}`},
+		{"bad method", "GET", "tyger", []string{}, "file", "filename", "tyger", 405, "Method Not Allowed"},
+		{"bad file form field", "POST", "tyger", []string{}, "derp", "filename", "tyger", 400, "Bad Request"},
+		{"bad fname form field", "POST", "tyger", []string{}, "file", "derp", "tyger", 400, "Bad Request"},
+		{"illegal fname form field", "POST", "tyger", []string{}, "file", "derp", "ty/ger", 400, "Bad Request"},
+		{"file exists", "POST", "tyger", []string{"tyger"}, "file", "filename", "tyger", 500, "Internal Server Error"},
+		{"parity file exists", "POST", "tyger", []string{"tyger.parity.1"}, "file", "filename", "tyger", 500, "Internal Server Error"},
+		{"successful upload", "POST", "tyger", []string{}, "file", "filename", "tyger", 200, `{"size":808,"hashes":["aa8b8979f1486fe03d54d1bdd4a32018386285a2ad0dc9a2820f0da3d6293e72","64163fa75b3eadb78f376dd7ab84e48595e9748dadbfb50e2126bef20481baa1","e32a8903342ab6dc68d46462df727f6812f6fbb728c4a1240b625331b811c147"],"data_shards":2,"parity_shards":1}`},
 	}
 	// successful upload
 	for _, tt := range submitDataTests {
@@ -192,6 +196,14 @@ func TestSubmitDataHandler(t *testing.T) {
 			}
 			defer fileToSubmit.Close()
 			_, err = io.Copy(form, fileToSubmit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fname, err := multipartWriter.CreateFormField(tt.formFnameField)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = fname.Write([]byte(tt.formFnameValue))
 			if err != nil {
 				t.Fatal(err)
 			}

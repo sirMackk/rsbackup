@@ -68,6 +68,7 @@ func (r *RSBackupAPI) Start() chan struct{} {
 			close(running)
 		}
 	}()
+	log.Infof("Started http api server on %s", r.Config.Address)
 	return running
 }
 
@@ -87,7 +88,7 @@ func (r *RSBackupAPI) Stop() error {
 func (r *RSBackupAPI) registerRoutes() {
 	log.Debug("Registering routes")
 	http.HandleFunc("/list_data", r.listDataHandler)
-	http.HandleFunc("/check_data", r.checkDataHandler)
+	http.HandleFunc("/check_data/", r.checkDataHandler)
 	http.HandleFunc("/submit_data", r.submitDataHandler)
 	http.HandleFunc("/retrieve_data", r.retrieveDataHandler)
 }
@@ -102,6 +103,7 @@ func (rs *RSBackupAPI) listDataHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
+	log.Debugf("Listing files in %s", rs.Config.BackupRoot)
 	names, err := rs.RsFileMan.ListData()
 	if err != nil {
 		rs.Errorf(r, "Error while listing files from %s: %s", rs.Config.BackupRoot, err)
@@ -136,6 +138,7 @@ func (rs *RSBackupAPI) checkDataHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
+	log.Debugf("Checking health of %s", fname)
 	health, lmod, hashes, err := rs.RsFileMan.CheckData(fname)
 	if err != nil {
 		if err.Error() == "File not found" {
@@ -180,28 +183,46 @@ func (rs *RSBackupAPI) submitDataHandler(w http.ResponseWriter, r *http.Request)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	inputData, header, err := r.FormFile("file")
+	inputData, _, err := r.FormFile("file")
 	if err != nil {
 		rs.Errorf(r, "Bad form field: %s", err)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	defer inputData.Close()
-	log.Errorf("Creating file %s", header.Filename)
-	dataFilePath, err := rs.RsFileMan.SaveFile(inputData, header.Filename)
+	desiredFileName := r.FormValue("filename")
+	if desiredFileName == "" {
+		rs.Errorf(r, "Missing 'filename' parameter'", "")
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	if strings.ContainsAny(desiredFileName, "/") {
+		rs.Errorf(r, "Request contains forbidden character '/' in filename '%s',", desiredFileName)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	log.Debugf("Submitted file %s", desiredFileName)
+	dataFilePath, err := rs.RsFileMan.SaveFile(inputData, desiredFileName)
 	if err != nil {
 		// TODO: bubble up 'file exists' error to client somehow
-		rs.Errorf(r, "Unable to save file %s: %s", header.Filename, err)
+		rs.Errorf(r, "Unable to save file %s: %s", desiredFileName, err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	md, err := rs.GenerateParityFiles(dataFilePath)
 	if err != nil {
 		// TODO: bubble up 'file exists' error to client somehow
-		rs.Errorf(r, "Unable to generate parity files for %s: %s", header.Filename, err)
+		rs.Errorf(r, "Unable to generate parity files for %s: %s", desiredFileName, err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	err = rs.RsFileMan.WriteMetadata(desiredFileName, md)
+	if err != nil {
+		rs.Errorf(r, "%s", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
 	rsp := &submitDataRsp{
 		Size:         md.Size,
 		Hashes:       md.Hashes,
@@ -229,6 +250,7 @@ func (rs *RSBackupAPI) retrieveDataHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	fpath := path.Join(rs.Config.BackupRoot, fname)
+	log.Debugf("Retrieving file %s", fpath)
 	file, err := os.Open(fpath)
 	if err != nil {
 		if os.IsNotExist(err) {

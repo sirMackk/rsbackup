@@ -68,6 +68,22 @@ func (r *RSFileManager) ReadMetadata(fpath string) (*rsutils.Metadata, error) {
 	return &md, nil
 }
 
+func (r *RSFileManager) WriteMetadata(fname string, md *rsutils.Metadata) error {
+	fpath := path.Join(r.Config.BackupRoot, fname)
+	mdPath := fpath + ".md"
+	mdFile, err := os.OpenFile(mdPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0655)
+	if err != nil {
+		log.Errorf("Cannot create metadata file %s: %s", mdPath, err)
+		return err
+	}
+	err = json.NewEncoder(mdFile).Encode(md)
+	if err != nil {
+		log.Errorf("Unable to encode metadata to %s: %s", mdPath, err)
+		return err
+	}
+	return nil
+}
+
 func (r *RSFileManager) SaveFile(src io.Reader, fname string) (string, error) {
 	dstPath := path.Join(r.Config.BackupRoot, fname)
 	outputFile, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0655)
