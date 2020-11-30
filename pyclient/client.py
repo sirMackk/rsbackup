@@ -9,8 +9,6 @@ import aiohttp
 import click
 
 # TODO:
-# - fix -k option
-# - fix/test retrieve_data endpoint
 # - add repair data api endpoint
 # - security: authentication
 # - typehints
@@ -40,11 +38,11 @@ class Client():
     def __init__(self,
                  timeout: int = 5,
                  server_url: str = 'http://localhost:44987',
-                 loose_tls: bool = False) -> None:
+                 strict_tls: bool = False) -> None:
         self.server_url = self._format_server_url(server_url)
         self.timeout = aiohttp.ClientTimeout(total=float(timeout))
-        self.loose_tls = loose_tls
-        self._aio_ssl = not loose_tls
+        self.strict_tls = strict_tls
+        self._aio_ssl = not strict_tls
 
     def _format_server_url(self, url: str) -> str:
         if url.startswith('http://') or url.startswith('https://'):
@@ -148,7 +146,7 @@ class Client():
                     print('No files!')
                 for file_ in data_list['files']:
                     print('=' * 80)
-                    print(f'name: {file_}')
+                    print(f'name: {file_["name"]}')
 
 
 def _run_client_fn(
@@ -182,10 +180,8 @@ def common_options(
                   type=int,
                   help='Seconds before timeout',
                   default=5)
-    @click.option('-k',
-                  '--loose-tls',
-                  default=False,
-                  type=bool,
+    @click.option('-strict-tls/--no-strict-tls',
+                  default=True,
                   help='Disable strict tls cert verification')
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> typing.Any:
@@ -202,13 +198,13 @@ def cli() -> None:
 @click.argument('filename', type=str)
 @click.argument('source-path', type=str)
 @common_options
-def submit_data(debug: bool, server_url: str, timeout: int, loose_tls: bool,
+def submit_data(debug: bool, server_url: str, timeout: int, strict_tls: bool,
                 filename: str, source_path: str) -> None:
     """Submit data to archive"""
     # TODO: refactor common setup
     _setup_logging(debug)
     file_path = pathlib.Path(source_path)
-    client = Client(timeout, server_url, loose_tls)
+    client = Client(timeout, server_url, strict_tls)
     _run_client_fn(client.submit_data, filename, file_path)
 
 
@@ -216,33 +212,33 @@ def submit_data(debug: bool, server_url: str, timeout: int, loose_tls: bool,
 @click.argument('filename', type=str)
 @click.argument('destination-path', type=str)
 @common_options
-def retrieve_data(debug: bool, server_url: str, timeout: int, loose_tls: bool,
+def retrieve_data(debug: bool, server_url: str, timeout: int, strict_tls: bool,
                   filename: str, destination_path: str) -> None:
     """Retrieve data by file name"""
     _setup_logging(debug)
     target_path = pathlib.Path(destination_path)
-    client = Client(timeout, server_url, loose_tls)
+    client = Client(timeout, server_url, strict_tls)
     _run_client_fn(client.retrieve_data, filename, target_path)
 
 
 @cli.command()
 @click.argument('filename', type=str)
 @common_options
-def check_data(debug: bool, server_url: str, timeout: int, loose_tls: bool,
+def check_data(debug: bool, server_url: str, timeout: int, strict_tls: bool,
                filename: str) -> None:
     """Check data integrity"""
     _setup_logging(debug)
-    client = Client(timeout, server_url, loose_tls)
+    client = Client(timeout, server_url, strict_tls)
     _run_client_fn(client.check_data, filename)
 
 
 @cli.command()
 @common_options
 def list_data(debug: bool, server_url: str, timeout: int,
-              loose_tls: bool) -> None:
+              strict_tls: bool) -> None:
     """List data"""
     _setup_logging(debug)
-    client = Client(timeout, server_url, loose_tls)
+    client = Client(timeout, server_url, strict_tls)
     _run_client_fn(client.list_data)
 
 

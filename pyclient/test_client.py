@@ -66,7 +66,7 @@ async def test_check_data(capfd) -> None:
         'hashes: ["123", "456"]\n'
     )
     with aioresponses() as m:
-        m.get(CHECK_DATA_URL, status=200, payload=payload)
+        m.get(f'{CHECK_DATA_URL}/{data_name}', status=200, payload=payload)
         c = pyclient.Client(server_url=SERVER_URL)
         await c.check_data(data_name)
         captured = capfd.readouterr()
@@ -79,11 +79,12 @@ async def test_check_data(capfd) -> None:
     (500, pyclient.ServerError, 'Internal Server Error'),
 ])
 async def test_check_data_bad_reply(status, exc, exc_msg) -> None:
+    data_name = 'some/data'
     with aioresponses() as m:
-        m.get(CHECK_DATA_URL, status=status, body=exc_msg)
+        m.get(f'{CHECK_DATA_URL}/{data_name}', status=status, body=exc_msg)
         c = pyclient.Client(server_url=SERVER_URL)
         with pytest.raises(exc) as e:
-            await c.check_data('some/data')
+            await c.check_data(data_name)
         assert e.value.args[0] == exc_msg
 
 

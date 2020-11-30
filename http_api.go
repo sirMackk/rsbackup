@@ -90,7 +90,7 @@ func (r *RSBackupAPI) registerRoutes() {
 	http.HandleFunc("/list_data", r.listDataHandler)
 	http.HandleFunc("/check_data/", r.checkDataHandler)
 	http.HandleFunc("/submit_data", r.submitDataHandler)
-	http.HandleFunc("/retrieve_data", r.retrieveDataHandler)
+	http.HandleFunc("/retrieve_data/", r.retrieveDataHandler)
 }
 
 type listDataRsp struct {
