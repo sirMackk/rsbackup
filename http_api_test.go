@@ -1,8 +1,8 @@
 package rsbackup
 
 import (
-	//"fmt"
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -265,6 +265,99 @@ func TestRetrieveDataHandler(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.url, nil)
 			rr := httptest.NewRecorder()
 			handler := http.HandlerFunc(api.retrieveDataHandler)
+			handler.ServeHTTP(rr, req)
+			rsp := rr.Result()
+
+			if rsp.StatusCode != tt.expectedStatus {
+				t.Errorf("Got status code %d, expected %d", rsp.StatusCode, tt.expectedStatus)
+			}
+			rspBody, err := ioutil.ReadAll(rsp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rspBodyTrimmed := strings.TrimSuffix(string(rspBody), "\n"); rspBodyTrimmed != tt.expectedRsp {
+				t.Errorf("Got rsp body '%s', expected '%s'", rspBodyTrimmed, tt.expectedRsp)
+			}
+		})
+	}
+}
+
+func cloneFile(dst, src string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func cloneShards(t *testing.T, shardName, tmpDirPath string, conf *Config) {
+	mdName := shardName + ".md"
+	mdSourcePath := "testdata/" + mdName
+	err := cloneFile(path.Join(tmpDirPath, mdName), mdSourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dataShardPath := "testdata/" + shardName
+	err = cloneFile(path.Join(tmpDirPath, shardName), dataShardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < conf.ParityShards; i++ {
+		parityShardName := fmt.Sprintf("%s.parity.%d", shardName, i+1)
+		err = cloneFile(path.Join(tmpDirPath, parityShardName), "testdata/"+parityShardName)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRepairData(t *testing.T) {
+	repairDataTests := []struct {
+		name           string
+		method         string
+		url            string
+		shardName      string
+		expectedStatus int
+		expectedRsp    string
+	}{
+		{"bad method", "POST", "/repair_data/tyger", "tyger", 405, "Method Not Allowed"},
+		{"bad url param", "GET", "/repair_data/", "tyger", 400, "Bad Request"},
+		{"file not found", "GET", "/repair_data/lion", "tyger", 404, "Not Found"},
+		{"too few parity shards", "GET", "/repair_data/tyger_broken", "tyger_broken", 200, `{"name":"tyger_broken","status":"Cannot repair data: 2 shards corrupt, only have 1 parity shards"}`},
+		{"Data repair", "GET", "/repair_data/tyger_bad", "tyger_bad", 200, `{"name":"tyger_bad","status":"GOOD"}`},
+	}
+
+	for _, tt := range repairDataTests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := createTMPDir(t, "rsbackup")
+			config := &Config{
+				BackupRoot:   tmpDir,
+				DataShards:   2,
+				ParityShards: 1,
+			}
+			api := &RSBackupAPI{
+				Config: config,
+				RsFileMan: &RSFileManager{
+					Config: config,
+				},
+			}
+			cloneShards(t, tt.shardName, tmpDir, config)
+
+			req := httptest.NewRequest(tt.method, tt.url, nil)
+			rr := httptest.NewRecorder()
+			handler := http.HandlerFunc(api.repairDataHandler)
 			handler.ServeHTTP(rr, req)
 			rsp := rr.Result()
 

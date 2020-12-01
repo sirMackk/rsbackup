@@ -9,7 +9,6 @@ import aiohttp
 import click
 
 # TODO:
-# - add repair data api endpoint
 # - security: authentication
 # - typehints
 # - docstrings
@@ -33,6 +32,7 @@ class Client():
         'check_data': 'check_data',
         'submit_data': 'submit_data',
         'retrieve_data': 'retrieve_data',
+        'repair_data': 'repair_data',
     }
 
     def __init__(self,
@@ -120,7 +120,7 @@ class Client():
                 f'{self.server_url}/{self.SERVER_URLMAP["check_data"]}/{fname}',
                 ssl=self._aio_ssl
             ) as rsp:
-                if rsp.status == 400:
+                if rsp.status == 404:
                     raise ClientError(f'File {fname} not found!')
                 elif rsp.status != 200:
                     raise ServerError(await rsp.text())
@@ -146,7 +146,20 @@ class Client():
                     print('No files!')
                 for file_ in data_list['files']:
                     print('=' * 80)
-                    print(f'name: {file_["name"]}')
+                    print(f'name: {file_}')
+
+    async def repair_data(self, fname: str) -> None:
+        # rsp = {name, status}
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.get(
+                    f'{self.server_url}/{self.SERVER_URLMAP["repair_data"]}/{fname}',
+                    ssl=self._aio_ssl) as rsp:
+                if rsp.status != 200:
+                    raise ServerError(await rsp.text())
+                repair_rsp = await rsp.json()
+                print('=' * 80)
+                print(f'name: {repair_rsp["name"]}')
+                print(f'status: {repair_rsp["status"]}')
 
 
 def _run_client_fn(
@@ -240,6 +253,17 @@ def list_data(debug: bool, server_url: str, timeout: int,
     _setup_logging(debug)
     client = Client(timeout, server_url, strict_tls)
     _run_client_fn(client.list_data)
+
+
+@cli.command()
+@click.argument('filename', type=str)
+@common_options
+def repair_data(debug: bool, server_url: str, timeout: int, strict_tls: bool,
+                filename: str) -> None:
+    """Attempt to repair broken data"""
+    _setup_logging(debug)
+    client = Client(timeout, server_url, strict_tls)
+    _run_client_fn(client.repair_data, filename)
 
 
 if __name__ == '__main__':

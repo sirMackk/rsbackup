@@ -30,7 +30,7 @@ func (r *RSFileManager) ListData() ([]string, error) {
 	}
 	n := 0
 	for _, name := range names {
-		matched, err := regexp.MatchString(`.*parity\.\d+$`, name)
+		matched, err := regexp.MatchString(`(.*parity\.\d+|md$)`, name)
 		if err != nil {
 			log.Errorf("Error while listing file '%s', skipping (error: %s)", name, err)
 			continue
@@ -131,7 +131,49 @@ func (rs *RSBackupAPI) GenerateParityFiles(dataFilePath string) (*rsutils.Metada
 	return shardCreator.Encode(parityWriters)
 }
 
+func (r *RSFileManager) RepairData(fname string) error {
+	// TODO: can this be deduplicated from CheckData?
+	// Is there a clean, safe way to ensure closing files across functions?
+	fpath := path.Join(r.Config.BackupRoot, fname)
+	dataFile, err := os.OpenFile(fpath, os.O_RDWR, 0664)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Errorf("Requested file '%s' does not exist", fpath)
+			return err
+		}
+		log.Errorf("Cannot open file '%s': %s", fpath, err)
+		return err
+	}
+	defer dataFile.Close()
+	md, err := r.ReadMetadata(fpath)
+	if err != nil {
+		return err
+	}
+
+	fileChunks := rsutils.SplitIntoPaddedChunks(dataFile, md.Size, md.DataShards)
+	shards := make([]io.ReadWriteSeeker, len(fileChunks)+md.ParityShards)
+	for i := range fileChunks {
+		shards[i] = fileChunks[i]
+	}
+	for i := 0; i < md.ParityShards; i++ {
+		parityPath := fmt.Sprintf("%s.parity.%d", fpath, i+1)
+		parityChunk, err := os.OpenFile(parityPath, os.O_RDWR, 0664)
+		if err != nil {
+			return err
+		}
+		defer parityChunk.Close()
+		shards[md.DataShards+i] = parityChunk
+	}
+	shardMan := rsutils.NewShardManager(shards, md)
+	if err != nil {
+		log.Errorf("Cannot create shardManager for %s: %s", fname, err)
+		return err
+	}
+	return shardMan.Repair()
+}
+
 func (r *RSFileManager) CheckData(fname string) (bool, string, []string, error) {
+	// TODO: returning 4 items is a code smell
 	fpath := path.Join(r.Config.BackupRoot, fname)
 	dataFile, err := os.Open(fpath)
 	if err != nil {
@@ -162,20 +204,23 @@ func (r *RSFileManager) CheckData(fname string) (bool, string, []string, error) 
 		defer parityChunk.Close()
 		shards[md.DataShards+i] = parityChunk
 	}
-
 	shardMan := rsutils.NewShardManager(shards, md)
+	if err != nil {
+		log.Errorf("Cannot create shardManager for %s: %s", fname, err)
+		return false, "", []string{}, err
+	}
 	err = shardMan.CheckHealth()
 	var health = true
 	if err != nil {
-		log.Infof("Found corrupted shards for '%s': %s", fpath, err)
+		log.Infof("Found corrupted shards for '%s': %s", fname, err)
 		health = false
 	}
 
 	stat, err := dataFile.Stat()
 	if err != nil {
-		log.Errorf("Cannot stat file '%s': %s", fpath, err)
+		log.Errorf("Cannot stat file '%s': %s", fname, err)
 		return false, "", []string{}, err
 	}
 	lmod := stat.ModTime().Format("2006-01-02 15:04:05")
-	return health, lmod, md.Hashes, nil
+	return health, lmod, shardMan.Metadata.Hashes, nil
 }

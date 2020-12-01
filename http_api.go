@@ -91,6 +91,7 @@ func (r *RSBackupAPI) registerRoutes() {
 	http.HandleFunc("/check_data/", r.checkDataHandler)
 	http.HandleFunc("/submit_data", r.submitDataHandler)
 	http.HandleFunc("/retrieve_data/", r.retrieveDataHandler)
+	http.HandleFunc("/repair_data/", r.repairDataHandler)
 }
 
 type listDataRsp struct {
@@ -264,4 +265,53 @@ func (rs *RSBackupAPI) retrieveDataHandler(w http.ResponseWriter, r *http.Reques
 	}
 	defer file.Close()
 	http.ServeContent(w, r, fname, time.Time{}, file)
+}
+
+type repairDataRsp struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+func (rs *RSBackupAPI) repairDataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		rs.Errorf(r, "Bad method %s", r.Method)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	fname, err := getURLParam(r.URL.Path)
+	if err != nil {
+		rs.Errorf(r, "Can't retrieve file: %s", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	rsp := &repairDataRsp{
+		Name:   fname,
+		Status: "GOOD",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	log.Debugf("Repairing file %s", fname)
+	err = rs.RsFileMan.RepairData(fname)
+	if err != nil {
+		if os.IsNotExist(err) {
+			rs.Errorf(r, "File %s not found", fname)
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		rs.Errorf(r, "Could not process request: %s", err)
+		// TODO: find better way to bubble up specific errors
+		if strings.HasPrefix(err.Error(), "Cannot repair data") || strings.HasPrefix(err.Error(), "Error reconstructing data") {
+			rsp.Status = err.Error()
+			err = json.NewEncoder(w).Encode(rsp)
+			if err != nil {
+				rs.Errorf(r, "Cannot marshal json rsp: %s", err)
+			}
+			return
+		}
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	err = json.NewEncoder(w).Encode(rsp)
+	if err != nil {
+		rs.Errorf(r, "Cannot mashal json rsp: %s", err)
+	}
 }

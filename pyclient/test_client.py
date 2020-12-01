@@ -12,14 +12,11 @@ LIST_DATA_URL = f'http://{SERVER_URL}/{URL_MAP["list_data"]}'
 CHECK_DATA_URL = f'http://{SERVER_URL}/{URL_MAP["check_data"]}'
 SUBMIT_DATA_URL = f'http://{SERVER_URL}/{URL_MAP["submit_data"]}'
 RETRIEVE_DATA_URL = f'http://{SERVER_URL}/{URL_MAP["retrieve_data"]}'
+REPAIR_DATA_URL = f'http://{SERVER_URL}/{URL_MAP["repair_data"]}'
 
 list_data_parameters = [
     ({
-        'files': [
-            {
-                'name': 'some/file/name',
-            },
-        ]
+        'files': ['some/file/name'],
     },
      '=' * 80 + '\n'
      'name: some/file/name\n'),
@@ -75,7 +72,7 @@ async def test_check_data(capfd) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('status,exc,exc_msg', [
-    (400, pyclient.ClientError, 'File some/data not found!'),
+    (404, pyclient.ClientError, 'File some/data not found!'),
     (500, pyclient.ServerError, 'Internal Server Error'),
 ])
 async def test_check_data_bad_reply(status, exc, exc_msg) -> None:
@@ -195,4 +192,40 @@ async def test_retrieve_data_failure(capfd, tmp_path, status, exc,
 
         with pytest.raises(exc) as e:
             await c.retrieve_data('some/file', data_path)
+        assert e.value.args[0] == exc_msg
+
+
+@pytest.mark.asyncio
+async def test_repair_data(capfd) -> None:
+    expected_out = (
+        '=' * 80 + '\n'
+        'name: some/file\n'
+        'status: GOOD\n'
+    )
+    with aioresponses() as m:
+        m.get(REPAIR_DATA_URL + '/some/file',
+              status=200,
+              payload={
+                  'name': 'some/file',
+                  'status': 'GOOD'
+              })
+        c = pyclient.Client(server_url=SERVER_URL)
+
+        await c.repair_data('some/file')
+        captured = capfd.readouterr()
+        assert captured.out == expected_out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status,exc,exc_msg', [
+    (404, pyclient.ServerError, 'File some/file not found!'),
+    (500, pyclient.ServerError, 'wat'),
+])
+async def test_repair_data_failure(status, exc, exc_msg) -> None:
+    with aioresponses() as m:
+        m.get(REPAIR_DATA_URL + '/some/file', status=status, body=exc_msg)
+        c = pyclient.Client(server_url=SERVER_URL)
+
+        with pytest.raises(exc) as e:
+            await c.repair_data('some/file')
         assert e.value.args[0] == exc_msg
